@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ミサイル誘導シミュレーション (比例航法)</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; }
+        canvas { background: #111; display: block; margin: 20px auto; border: 1px solid #444; }
+        .controls { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>ミサイル誘導シミュレーション（比例航法）</h1>
+    <canvas id="simCanvas" width="800" height="600"></canvas>
+    <div class="controls">
+        <p>赤：ターゲット（マウスに追従） | 青：ミサイル（比例航法で追尾）</p>
+        <button onclick="resetSimulation()">リセット</button>
+    </div>
+
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+
+// シミュレーション変数
+let target, missile, pathHistory;
+
+// パラメータ
+const N = 4.0; // ナビゲーション定数 (Proportional Navigation Constant)
+const MISSILE_SPEED = 5.0;
+const TARGET_SPEED = 2.5;
+
+class Entity {
+    constructor(x, y, vx, vy, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.closePath();
+    }
+}
+
+function resetSimulation() {
+    // ターゲットの初期位置と速度
+    target = new Entity(400, 100, TARGET_SPEED, 0, '#ff4757');
+    
+    // ミサイルの初期位置と速度（画面下中央から上向きに発射）
+    missile = new Entity(400, 550, 0, -MISSILE_SPEED, '#1e90ff');
+    missile.lastLosAngle = null; // 前フレームの視線角を記録用
+    
+    pathHistory = { missile: [], target: [] };
+}
+
+// マウス位置をターゲットの目標値にする（インタラクティブ操作用）
+let mouseX = 400, mouseY = 100;
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
+
+function loop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. ターゲットの移動ロジック (マウスに向かってなめらかに移動)
+    const tx = mouseX - target.x;
+    const ty = mouseY - target.y;
+    const distTarget = Math.sqrt(tx*tx + ty*ty);
+    if (distTarget > 5) {
+        target.vx = (tx / distTarget) * TARGET_SPEED;
+        target.vy = (ty / distTarget) * TARGET_SPEED;
+    } else {
+        target.vx = 0; target.vy = 0;
+    }
+    target.update();
+
+    // 2. ミサイル誘導アルゴリズム (比例航法)
+    const dx = target.x - missile.x;
+    const dy = target.y - missile.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // 現在の視線角 (Line of Sight Angle)
+    const currentLosAngle = Math.atan2(dy, dx);
+
+    if (missile.lastLosAngle !== null && distance > 10) {
+        // 視線角速度 (前フレームからの変化量)
+        let deltaLos = currentLosAngle - missile.lastLosAngle;
+
+        // 角度の不連続性（-PI から PI への飛び）を補正
+        if (deltaLos > Math.PI) deltaLos -= Math.PI * 2;
+        if (deltaLos < -Math.PI) deltaLos += Math.PI * 2;
+
+        // ミサイルの現在の進行方向の角度
+        let currentHeading = Math.atan2(missile.vy, missile.vx);
+
+        // 比例航法の基本式: 進行方向の変化量 = N * 視線角の変化量
+        let newHeading = currentHeading + (N * deltaLos);
+
+        // 速度ベクトルを更新
+        missile.vx = Math.cos(newHeading) * MISSILE_SPEED;
+        missile.vy = Math.sin(newHeading) * MISSILE_SPEED;
+    }
+    
+    missile.lastLosAngle = currentLosAngle;
+    
+    // 命中判定（一定距離以下になったら停止）
+    if (distance > 8) {
+        missile.update();
+    }
+
+    // 3. 軌跡の記録と描画
+    pathHistory.target.push({x: target.x, y: target.y});
+    pathHistory.missile.push({x: missile.x, y: missile.y});
+
+    // ターゲットの軌跡（赤）
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255, 71, 87, 0.3)';
+    pathHistory.target.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // ミサイルの軌跡（青）
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(30, 144, 255, 0.5)';
+    pathHistory.missile.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // 視線（グリッド線のような効果）
+    if (distance > 10) {
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.moveTo(missile.x, missile.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.stroke();
+    }
+
+    // エンティティの描画
+    target.draw();
+    missile.draw();
+
+    requestAnimationFrame(loop);
+}
+
+// 初期化と開始
+resetSimulation();
+loop();
+</script>
+</body>
+</html>
